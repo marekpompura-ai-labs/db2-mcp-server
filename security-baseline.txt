@@ -1,0 +1,30 @@
+# Approved Find Security Bugs baseline (#93, ADR 0046).
+#
+# Each line is detector|class|method - see scripts/security-findings.sh for
+# how identity is derived and why line numbers and synthetic lambda indices
+# are deliberately excluded.
+#
+# Every entry below was reviewed and is defended by a control the scanner
+# cannot see. NONE is an unexplained suppression:
+#
+#   executeLookup       caller-supplied identifiers are validated against
+#                       ^[A-Za-z0-9_#$@]+$ by requireIdentifier() before the
+#                       statement is built; the filter VALUE is bound with ?
+#   executeQuery        the caller's SQL, executed deliberately, behind the
+#                       five-gate chain (capability profile,
+#                       requireReadOnlyStatement, structuralValidator,
+#                       schemaAllowlistValidator, complexityValidator)
+#   captureAndReadPlan  the same sql, the same five gates; queryTag derives
+#                       from a server-generated UUID
+#
+# Regenerate after a REVIEWED change with:
+#     ./mvnw verify -DskipTests -Psecurity-scan
+#     ./scripts/security-findings.sh > security-baseline.txt
+#
+# Updating this file is a deliberate act that belongs in a reviewed diff.
+# Do not regenerate it to make a build quiet.
+SQL_INJECTION_JDBC|io.github.marekpompura.db2mcp.adapter.db2.Db2QueryAdapter|lambda$executeQuery
+SQL_INJECTION_SPRING_JDBC|io.github.marekpompura.db2mcp.adapter.db2.Db2MetadataAdapter|executeLookup
+SQL_INJECTION_SPRING_JDBC|io.github.marekpompura.db2mcp.adapter.db2.Db2MetadataAdapter|executeLookup
+SQL_INJECTION_SPRING_JDBC|io.github.marekpompura.db2mcp.adapter.db2.Db2QueryAdapter|captureAndReadPlan
+SQL_INJECTION_SPRING_JDBC|io.github.marekpompura.db2mcp.adapter.db2.Db2QueryAdapter|captureAndReadPlan

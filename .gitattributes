@@ -1,0 +1,15 @@
+# Force LF line endings for all text files on checkout, regardless of a
+# contributor's local core.autocrlf setting - a Windows checkout with
+# core.autocrlf=true would otherwise rewrite committed LF to CRLF, which
+# breaks any test that reads a checked-in text fixture (e.g. a golden JSON
+# snapshot) and compares it byte-for-byte against in-memory-generated
+# content (which always uses LF, e.g. Jackson's pretty printer). See
+# McpContractSnapshotTest / McpOutputContractSnapshotTest and issue #15.
+* text=auto eol=lf
+
+# mvnw.cmd is a genuine Windows batch script (committed with CRLF, matching
+# the upstream Maven Wrapper distribution) - fully excluded from the
+# blanket LF rule above (not just re-pointed at eol=crlf, which still
+# round-trips the file through LF normalization first) so git leaves its
+# checked-in bytes untouched.
+mvnw.cmd -text

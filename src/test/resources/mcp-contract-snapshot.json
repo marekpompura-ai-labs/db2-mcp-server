@@ -1,0 +1,192 @@
+[ {
+  "description" : "Parameters, types, and directions (IN/OUT/INOUT) of a stored procedure. Procedures can be overloaded - pass specificName from listProcedures, not procedureName, to select one unambiguously",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : {
+      "schema" : {
+        "description" : "Schema name",
+        "type" : "string"
+      },
+      "specificName" : {
+        "description" : "specificName from listProcedures, not procedureName",
+        "type" : "string"
+      }
+    },
+    "required" : [ "schema", "specificName" ],
+    "type" : "object"
+  },
+  "name" : "describeProcedure"
+}, {
+  "description" : "Describe columns of a table: name, type, length, nullability, primary key flag",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : {
+      "schema" : {
+        "description" : "Schema name",
+        "type" : "string"
+      },
+      "table" : {
+        "description" : "Table name",
+        "type" : "string"
+      }
+    },
+    "required" : [ "schema", "table" ],
+    "type" : "object"
+  },
+  "name" : "describeTable"
+}, {
+  "description" : "Execute a read-only SELECT or WITH query",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : {
+      "sql" : {
+        "description" : "SQL text, must start with SELECT or WITH",
+        "type" : "string"
+      }
+    },
+    "required" : [ "sql" ],
+    "type" : "object"
+  },
+  "name" : "executeQuery"
+}, {
+  "description" : "Capture DB2's access plan for a read-only SELECT or WITH query, without executing it",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : {
+      "sql" : {
+        "description" : "SQL text, must start with SELECT or WITH",
+        "type" : "string"
+      }
+    },
+    "required" : [ "sql" ],
+    "type" : "object"
+  },
+  "name" : "explainQuery"
+}, {
+  "description" : "Report this server's effective capabilities, resource limits, and connected database identity - a versioned manifest, not a static description of the code",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : { },
+    "required" : [ ],
+    "type" : "object"
+  },
+  "name" : "getCapabilities"
+}, {
+  "description" : "Source DDL of a stored procedure from SYSCAT.PROCEDURES.TEXT - SQL procedures only. Procedures can be overloaded - pass specificName from listProcedures, not procedureName, to select one unambiguously",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : {
+      "schema" : {
+        "description" : "Schema name",
+        "type" : "string"
+      },
+      "specificName" : {
+        "description" : "specificName from listProcedures, not procedureName",
+        "type" : "string"
+      }
+    },
+    "required" : [ "schema", "specificName" ],
+    "type" : "object"
+  },
+  "name" : "getProcedureSource"
+}, {
+  "description" : "Foreign key relationships in and out of a table",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : {
+      "schema" : {
+        "description" : "Schema name",
+        "type" : "string"
+      },
+      "table" : {
+        "description" : "Table name",
+        "type" : "string"
+      }
+    },
+    "required" : [ "schema", "table" ],
+    "type" : "object"
+  },
+  "name" : "getTableDependencies"
+}, {
+  "description" : "List all stored procedures in a schema, including each overload's specificName",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : {
+      "schema" : {
+        "description" : "Schema name",
+        "type" : "string"
+      }
+    },
+    "required" : [ "schema" ],
+    "type" : "object"
+  },
+  "name" : "listProcedures"
+}, {
+  "description" : "List all non-system schemas in the DB2 database",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : { },
+    "required" : [ ],
+    "type" : "object"
+  },
+  "name" : "listSchemas"
+}, {
+  "description" : "List all tables and views in a given DB2 schema",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : {
+      "schema" : {
+        "description" : "Schema name",
+        "type" : "string"
+      }
+    },
+    "required" : [ "schema" ],
+    "type" : "object"
+  },
+  "name" : "listTables"
+}, {
+  "description" : "Reference data lookup - CODE and DESCRIPTION from any table, with an optional category filter",
+  "inputSchema" : {
+    "$schema" : "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties" : false,
+    "properties" : {
+      "codeColumn" : {
+        "description" : "Column holding the code value",
+        "type" : "string"
+      },
+      "descriptionColumn" : {
+        "description" : "Column holding the description value",
+        "type" : "string"
+      },
+      "filterColumn" : {
+        "description" : "Optional discriminator column, e.g. a category column",
+        "type" : "string"
+      },
+      "filterValue" : {
+        "description" : "Value to filter filterColumn by, if filterColumn is set",
+        "type" : "string"
+      },
+      "schema" : {
+        "description" : "Schema name",
+        "type" : "string"
+      },
+      "table" : {
+        "description" : "Table name",
+        "type" : "string"
+      }
+    },
+    "required" : [ "schema", "table", "codeColumn", "descriptionColumn" ],
+    "type" : "object"
+  },
+  "name" : "lookupRefData"
+} ]

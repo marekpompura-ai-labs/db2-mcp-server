@@ -1,0 +1,116 @@
+name: Security scan (Find Security Bugs)
+
+# ADR 0046 / issue #86. Security static analysis runs at the moments that
+# matter - a pull request into main, or on demand - not on every push.
+#
+# In the private development repository this fires on the devel -> main
+# promotion. This public edition has no devel branch (brief section 15.1:
+# mature content is promoted here from the private repository), so the
+# equivalent moment is any pull request targeting main.
+#
+# The trigger is the decision here, not the tool. As an every-push gate
+# (ADR 0043's model for Enforcer/Spotless/SpotBugs) this would have to fail
+# on five known, already-defended dynamic-SQL sites, which means five
+# permanent exclusions - and an exclusion suppresses the *next* finding at
+# that line as effectively as the current one. Running it at promotion
+# keeps the signal and needs no exclusions at all.
+#
+# Report-only by design: the job reports, a human decides at promotion.
+# What it reports is a diff of finding IDENTITIES against the approved
+# security-baseline.txt, not a count (#93) - a count cannot tell a clean
+# run from one where a known finding vanished and a new vulnerability took
+# its place.
+on:
+  workflow_dispatch: {}
+  pull_request:
+    branches: [main]
+
+jobs:
+  security-scan:
+    name: Find Security Bugs (report-only)
+    runs-on: ubuntu-latest
+    # Same guard as live-db2-it.yml: a dependency bump has no use for a
+    # source-code security scan, and Dependabot raises one per update.
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Tests are skipped deliberately: SpotBugs analyses compiled bytecode,
+      # and the CI workflow already runs the full suite on this same commit.
+      - name: Run Find Security Bugs
+        run: ./mvnw -B verify -DskipTests -DskipITs -Psecurity-scan
+
+      # Compares finding IDENTITIES against the approved baseline, not a
+      # count (#93). A count alone cannot detect substitution: one known
+      # finding disappearing while one new vulnerability appears leaves the
+      # total unchanged, and the old version of this step reported "at
+      # baseline" in exactly that case.
+      - name: Compare findings against the approved baseline
+        if: always()
+        run: |
+          report=target/spotbugsXml.xml
+          if [ ! -f "$report" ]; then
+            echo "No SpotBugs report produced - the scan did not complete." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          ./scripts/security-findings.sh "$report" > /tmp/current.txt
+          grep -v '^#' security-baseline.txt | grep -v '^[[:space:]]*$' > /tmp/baseline.txt
+
+          # comm needs sorted input; both sides are already sorted by the script
+          new_findings=$(comm -13 /tmp/baseline.txt /tmp/current.txt || true)
+          resolved=$(comm -23 /tmp/baseline.txt /tmp/current.txt || true)
+
+          {
+            echo "## Find Security Bugs"
+            echo ""
+            echo "Compared against \`security-baseline.txt\` by finding identity (detector, class, method)."
+            echo ""
+            if [ -n "$new_findings" ]; then
+              echo "### Findings NOT in the approved baseline"
+              echo ""
+              echo '```'
+              echo "$new_findings"
+              echo '```'
+              echo ""
+              echo "**Review these before promoting.** A finding here is either a real"
+              echo "new issue or a defended one that has moved - either way it needs a"
+              echo "human decision, and the baseline should only be updated in a"
+              echo "reviewed diff."
+            else
+              echo "No findings outside the approved baseline."
+            fi
+            echo ""
+            if [ -n "$resolved" ]; then
+              echo "### Baseline entries no longer reported"
+              echo ""
+              echo '```'
+              echo "$resolved"
+              echo '```'
+              echo ""
+              echo "Either genuinely fixed, or the code moved. Worth pruning from the"
+              echo "baseline so it does not mask a future finding at the same place."
+            fi
+            echo ""
+            echo "<details><summary>All current findings</summary>"
+            echo ""
+            echo '```'
+            cat /tmp/current.txt
+            echo '```'
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload SpotBugs report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: findsecbugs-report
+          path: target/spotbugsXml.xml
+          if-no-files-found: warn

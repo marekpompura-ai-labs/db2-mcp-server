@@ -1,0 +1,80 @@
+spring:
+  application:
+    name: db2-mcp-server
+  main:
+    keep-alive: true    # belt-and-suspenders alongside SerializedStdioServerTransportProvider's own non-daemon reader thread (issue #29) - kept in case that thread's daemon status ever changes; without one or the other the JVM would exit immediately (ADR 0001)
+    banner-mode: off    # required: banner goes to stdout and corrupts the MCP JSON-RPC stream (ADR 0001)
+    web-application-type: ${DB2MCP_HTTP_WEB_APPLICATION_TYPE:none}   # 'none' by default - no servlet container starts, no port opens, preserving ADR 0001's no-network-exposure guarantee. Only 'servlet' when the HTTP transport prototype (thread 6, ADR 0037) is deliberately enabled - see db2mcp.http.enabled below, which must be set in sync with this
+  jmx:
+    enabled: false       # no local side-channel for the MeterRegistry either (ADR 0011); no web starter is
+                          # present so no HTTP actuator endpoint exists in the first place - this is belt and suspenders
+  lifecycle:
+    timeout-per-shutdown-phase: 10s   # bounds graceful shutdown (ADR 0016); it must finish, not hang indefinitely
+  ai:
+    mcp:
+      server:
+        name: db2-mcp-server
+        version: 1.0.1
+        stdio: true
+  datasource:
+    url: jdbc:db2://${DB2_HOST}:${DB2_PORT}/${DB2_DATABASE}
+    username: ${DB2_USER}
+    password: ${DB2_PASSWORD}
+    driver-class-name: com.ibm.db2.jcc.DB2Driver
+    hikari:
+      connection-timeout: 10000
+      maximum-pool-size: 5
+      read-only: true    # layer 2 of read-only enforcement (ADR 0002)
+
+server:
+  # Only relevant when spring.main.web-application-type is 'servlet' (thread 6,
+  # ADR 0037) - otherwise no servlet container starts and these are inert.
+  port: 8080
+  address: 127.0.0.1   # loopback-only even when HTTP is enabled: this prototype has no TLS story of its own (ADR 0037), so binding to loopback is the concrete mitigation - operators must deliberately widen this, not something that happens by accident
+
+management:
+  # 100%, not Spring Boot's 10% default: this is a low-volume, governed internal
+  # tool where every call is already individually audited (ADR 0010) - sampling
+  # exists to reduce collector load under high traffic, not a concern here, and
+  # a sampled-out span would silently defeat CR-010's export verification (ADR 0030).
+  # A real, found-and-fixed bug on the way to this value: it was first nested
+  # under spring.tracing.sampling.probability (wrong namespace, silently
+  # ignored) instead of management.tracing.sampling.probability - caught only
+  # because a real @SpringBootTest checked actual export behavior instead of
+  # assuming the property took effect.
+  tracing:
+    sampling:
+      probability: 1.0
+
+db2mcp:
+  capability-profile: METADATA_ONLY   # METADATA_ONLY (default, no executeQuery) | SAFE_QUERY | ADVANCED_QUERY (ADR 0006)
+  allowed-schemas: []   # empty = every executeQuery call rejected until schemas are listed here, e.g. [ITSM] (ADR 0008)
+  database:
+    product: DB2   # explicit adapter selection; only DB2 exists today, so any other value fails startup fast (ADR 0028)
+  query:
+    max-rows: 1000       # executeQuery row cap; results beyond this are truncated, not an error (ADR 0007)
+    timeout-seconds: 30   # executeQuery statement timeout (ADR 0007)
+    max-cell-bytes: 16384     # per-cell size cap (CLOB/BLOB/oversized strings); oversized cells are truncated, not an error (ADR 0023)
+    max-payload-bytes: 1048576   # total response size cap, independent of max-rows (ADR 0023)
+  advanced-query:
+    max-rows: 5000       # only enforced under capability-profile: ADVANCED_QUERY; SAFE_QUERY always uses db2mcp.query above (ADR 0032)
+    timeout-seconds: 120
+    max-cell-bytes: 65536
+    max-payload-bytes: 4194304
+  query-complexity:
+    max-joins: 5       # deterministic structural cap under SAFE_QUERY; cross joins are always rejected regardless of this value (ADR 0034)
+    max-nesting-depth: 3   # subquery nesting depth cap under SAFE_QUERY (ADR 0034)
+  advanced-query-complexity:
+    max-joins: 15       # only enforced under capability-profile: ADVANCED_QUERY; SAFE_QUERY always uses db2mcp.query-complexity above (ADR 0034)
+    max-nesting-depth: 6
+  concurrency:
+    max-concurrent-tool-executions: 10   # bounds ALL MCP tool calls in flight at once, not just executeQuery (master brief section 7.5); set modestly above hikari.maximum-pool-size (5) since non-DB2 tools (getCapabilities) also count (ADR 0035)
+  audit:
+    file: logs/audit.log   # rolling, bounded audit trail destination; startup fails if this path isn't writable (ADR 0026)
+  dynatrace:
+    enabled: false   # opt-in; false means zero Dynatrace beans registered at all - stderr-only logging export (ADR 0030) is unaffected (ADR 0036)
+    environment-url: ${DYNATRACE_ENVIRONMENT_URL:}    # e.g. https://abc12345.live.dynatrace.com - no path, no trailing slash
+    api-token: ${DYNATRACE_API_TOKEN:}                # never committed (ADR 0004); blank is correct when enabled=false
+  http:
+    enabled: ${DB2MCP_HTTP_ENABLED:false}   # opt-in prototype (thread 6, ADR 0037); stdio (ADR 0001) remains the default. Must be set in sync with spring.main.web-application-type=servlet above - HttpTransportPropertiesValidator fails startup loudly if they disagree
+    bearer-token: ${DB2MCP_HTTP_BEARER_TOKEN:}   # never committed (ADR 0004); a single shared secret checked on every HTTP request - blank is correct when enabled=false

@@ -1,0 +1,154 @@
+name: Live-DB2 IT (manual)
+
+# Issue #44 (2026-09-01 master-brief gap review, P1-7): automates
+# docs/demo/live-db2-test-prerequisites.md's runbook end to end - a real,
+# throwaway DB2 Community Edition container, provisioned with the same
+# itsm-schema.sql/itsm-test-data.sql fixtures the guided-scenarios
+# checklist itself names, running the real *IT.java Failsafe suite
+# (Db2LiveConnectivityIT, Db2LiveCatalogIT) against it.
+#
+# Deliberately workflow_dispatch only, not on every push/PR: DB2's
+# container needs --privileged (confirmed against this project's own
+# local DB2 instance - `docker inspect` shows Privileged=true), which
+# GitHub Actions' declarative `services:` block does not support (a
+# documented limitation, not something this workflow works around by
+# accident) - a raw `docker run` step has no such restriction, but the
+# image is large and first-boot database creation is genuinely slow
+# (registered here as a 20-minute health-check budget), too heavy for
+# every commit the way the main ci.yml job's fast checks are.
+#
+# Triggers (ISSUE-78). Still not on every push - see the budget note above -
+# but no longer only when someone remembers to ask, which is how this
+# project's catalog-behaviour claims ended up hand-verified one session at
+# a time in the first place.
+on:
+  workflow_dispatch: {}
+  # Nightly against the default branch. In the private development
+  # repository this points at devel, where the batch accumulates; this
+  # public edition has a single branch, so main is the equivalent target.
+  # The DB2 image is pinned, so a nightly will not catch base-image drift -
+  # its value is catching a break the morning after the commit that caused
+  # it, rather than at the next promotion.
+  schedule:
+    - cron: '0 3 * * *'
+  # Any pull request into main. Narrowed by the job-level `if` below:
+  # Dependabot's PRs target main too, so without the guard every dependency
+  # bump would spin up a DB2 container it has no use for.
+  pull_request:
+    branches: [main]
+
+jobs:
+  live-db2-it:
+    name: Run live-DB2 integration tests
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # A fixed, non-secret password is deliberate, not an oversight: this
+      # container is created and destroyed entirely within this one job run,
+      # never reachable beyond this runner's own localhost, and never
+      # persisted - there is nothing for a real secret to protect here that
+      # a GitHub Actions repo secret would meaningfully add.
+      # --health-* flags (ISSUE-71, found verifying #63): the image ships no
+      # Docker-level HEALTHCHECK of its own, and a bare `docker run` doesn't
+      # inherit docker-compose.yml's `healthcheck:` block - without these
+      # flags `docker inspect`'s Health.Status has nothing to report and the
+      # next step's poll spins for its full budget even after DB2 actually
+      # finishes booting.
+      - name: Start a throwaway DB2 container
+        run: |
+          docker run -d --name db2-ci --privileged \
+            -p 50000:50000 \
+            -e LICENSE=accept \
+            -e DB2INSTANCE=db2inst1 \
+            -e DB2INST1_PASSWORD=ci-ephemeral-instance-only \
+            -e DBNAME=testdb \
+            --health-cmd="su db2inst1 -c '. ~db2inst1/sqllib/db2profile; db2 connect to testdb' || exit 1" \
+            --health-interval=30s \
+            --health-timeout=20s \
+            --health-retries=10 \
+            --health-start-period=5m \
+            icr.io/db2_community/db2:12.1.5.0
+
+      - name: Wait for DB2 to report healthy
+        run: |
+          for i in $(seq 1 120); do
+            status="$(docker inspect --format='{{.State.Health.Status}}' db2-ci 2>/dev/null || echo starting)"
+            echo "DB2 health: $status ($i/120)"
+            if [ "$status" = "healthy" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "DB2 never became healthy within the 20-minute budget"
+          docker logs db2-ci --tail 200
+          exit 1
+
+      # Non-login `su db2inst1` with explicit db2profile sourcing (ISSUE-72,
+      # found verifying #63/#71) - same fix already applied to this repo's
+      # docker-compose.yml healthcheck: a login shell (`su -`) here doesn't
+      # reliably source db2profile, so `db2 connect` fails with SQL1032N
+      # (no start database manager command was issued) even though DB2 is
+      # genuinely up, as the preceding health-check step just proved.
+      #
+      # Retry loop (ISSUE-73, found verifying #63/#71/#72): the image runs
+      # its own internal db2stop/db2start cycle shortly after first startup
+      # to apply config changes. The Docker health check can report
+      # "healthy" once, transiently, right before that cycle begins, so the
+      # very first `db2 connect` here can race an in-progress restart and
+      # fail with SQL6036N (start/stop already in progress) even though DB2
+      # is genuinely healthy moments later.
+      - name: Provision the ITSM schema and test data
+        run: |
+          docker cp docs/demo/itsm-schema.sql db2-ci:/tmp/itsm-schema.sql
+          docker cp docs/demo/itsm-test-data.sql db2-ci:/tmp/itsm-test-data.sql
+          for i in $(seq 1 10); do
+            if docker exec db2-ci su db2inst1 -c "\
+              . ~db2inst1/sqllib/db2profile && \
+              db2 connect to testdb && \
+              db2 -td@ -f /tmp/itsm-schema.sql && \
+              db2 -td@ -f /tmp/itsm-test-data.sql"; then
+              exit 0
+            fi
+            echo "Provisioning attempt $i/10 failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Provisioning did not succeed after 10 attempts"
+          exit 1
+
+      - name: Run the live-DB2 integration test suite
+        env:
+          DB2_HOST: localhost
+          DB2_PORT: 50000
+          DB2_DATABASE: testdb
+          DB2_USER: db2inst1
+          DB2_PASSWORD: ci-ephemeral-instance-only
+        # Full `verify` lifecycle, not the bare `failsafe:integration-test
+        # failsafe:verify` goals (ISSUE-63, 2026-09-09 ChatGPT re-review,
+        # RR-P1-1): those direct plugin goals skip Maven's preceding
+        # compile/test-compile phases on a clean runner, so target/classes
+        # and target/test-classes never exist and Failsafe silently finds
+        # nothing to run. -DfailIfNoTests=true (pom.xml's failsafe binding
+        # has no such guard, since the main ci.yml run always passes
+        # -DskipITs and never reaches this check) turns "0 tests discovered"
+        # into a hard failure instead of a silent no-op.
+        run: ./mvnw -B verify -DfailIfNoTests=true
+
+      - name: Upload Failsafe reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failsafe-reports
+          path: target/failsafe-reports/
+          if-no-files-found: warn
+
+      - name: Stop the DB2 container
+        if: always()
+        run: docker rm -f db2-ci

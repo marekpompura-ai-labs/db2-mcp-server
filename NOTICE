@@ -1,0 +1,42 @@
+Governed Db2 MCP Server
+Copyright (c) 2026 Marek Pompura
+
+LICENSOR IDENTIFICATION
+-----------------------
+For the purposes of the PolyForm Strict License 1.0.0 in the accompanying
+LICENSE file, the "licensor" is Marek Pompura, and the "software" is the
+original material of this project.
+
+Contact for commercial licensing and collaboration:
+marek.pompura.it@gmail.com
+
+LICENCE STACK
+-------------
+Original project material
+    PolyForm Strict License 1.0.0  -> LICENSE
+    (reproduced verbatim from https://polyformproject.org/licenses/strict/1.0.0;
+     no clause of that licence has been added, removed or altered)
+
+Additional evaluation rights for this release
+    Enterprise Evaluation Permission, version 1.1  -> ENTERPRISE-EVALUATION.md
+    (a supplementary grant; it adds rights and amends nothing in LICENSE)
+
+Rights granted by release 1.0.0
+    Apache License 2.0  -> LICENSES/Apache-2.0.txt
+    (see LICENSE-HISTORY.md; those rights are not withdrawn)
+
+Third-party components
+    Each remains under its own licence. See THIRD-PARTY-NOTICES.md and the
+    CycloneDX SBOM produced by the build
+    (target/classes/META-INF/sbom/application.cdx.json).
+
+    Five distributed components are offered under more than one licence.
+    Which option this project relies on is a choice the distributor makes;
+    the elections for this release are recorded in LICENSE-ELECTIONS.md.
+
+IBM DATA SERVER DRIVER FOR JDBC AND SQLJ (JCC)
+----------------------------------------------
+No IBM driver is distributed with this project. The IBM Data Server Driver
+for JDBC and SQLJ is declared at `test` scope and is explicitly excluded
+from the repackaged application archive; it must be supplied by the operator
+and used under IBM's own terms. See docs/operations/external-jdbc-driver.md.

@@ -1,0 +1,194 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  # Lets the jar artifact be produced on demand without pushing anything
+  # (#106) - the upload step below no longer runs on every build.
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build, test, and quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # mvn verify runs the full gate set: unit tests, ArchUnit (ADR 0005),
+      # the MCP contract snapshot (ADR 0013), and the JaCoCo policy-coverage
+      # threshold (ADR 0014). -DskipITs skips attempting the *IT.java
+      # Failsafe suite at all - Db2LiveConnectivityIT (ADR 0024) already
+      # self-skips whenever DB2_HOST isn't set, which is always true here,
+      # same constraint as this project's own development environment
+      # (ADR 0009); -DskipITs just avoids paying for a phase that would
+      # only report a skip anyway. Uses the Maven Wrapper (CR-006), not a
+      # preinstalled mvn binary, so the documented build is reproducible.
+      - name: mvnw verify (unit, ArchUnit, contract snapshot, JaCoCo gate)
+        run: ./mvnw -B verify -DskipITs
+
+      - name: Package
+        run: ./mvnw -B -DskipTests package
+
+      # 2026-09-01 master-brief gap review (P1-5, issue #42): no
+      # dependency-vulnerability gate existed anywhere in this project -
+      # Dependabot (dependabot.yml) opens version-bump PRs but never checks
+      # whether a dependency has a known CVE. GitHub's own first-party
+      # actions/dependency-review-action was tried first, but this
+      # repository is private without GitHub Advanced Security, and that
+      # action hard-requires it ("Dependency review is not supported on
+      # this repository" - confirmed directly against this repo's own CI,
+      # not assumed from documentation). Trivy scanning an SBOM the build
+      # itself already generated (cyclonedx-maven-plugin, bound to the
+      # `package` phase in pom.xml) sidesteps that entirely - no GHAS, no
+      # NVD API key (unlike OWASP dependency-check), and no live
+      # re-resolution over the network the way pointing a scanner at raw
+      # pom.xml does (confirmed to hit a real Maven Central 429 rate limit
+      # when tried locally). Scans the whole current dependency tree on
+      # every push/PR, not just what a PR newly adds - a real baseline
+      # gate, immediately proven live: the first real run against this
+      # project's own tree found 3 CRITICAL CVEs in a transitive
+      # tomcat-embed-core version, fixed in the same change that added
+      # this step (see the tomcat.version property override above).
+      - name: Dependency vulnerability scan (Trivy, SBOM-based)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: sbom
+          scan-ref: target/classes/META-INF/sbom/application.cdx.json
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+      # ADR 0048. The 1.0.0 build produced a jar containing the IBM driver,
+      # because the dependency had no <scope> and nothing ever looked at the
+      # artifact. It was never distributed - the repo is private and the
+      # release carries no binary assets - but it would have been on the
+      # first published archive. Checks every distributable archive under
+      # target/ and opens nested jars, so a driver shaded into a bundled
+      # library is caught too. Runs before the smoke test deliberately: if
+      # the driver has crept back in, the smoke test would pass anyway - it
+      # would simply find the driver on the classpath - and hide it.
+      - name: No IBM driver in any shipped archive
+        run: bash scripts/verify-no-jcc.sh
+
+      # The gate has been wrong twice. Test the gate, not only the artifact.
+      - name: No-JCC gate self-test (15 evasion cases)
+        run: bash scripts/verify-no-jcc.sh --self-test
+
+      # Brief section 11.2: "smoke test covering server startup and at
+      # least one end-to-end MCP flow." Automates the manual verification
+      # this project's history relied on by hand at every phase - tool
+      # registration, stdout cleanliness (ADR 0001), the effective-config
+      # report (ADR 0015), the connectivity check (ADR 0019), credential
+      # safety, and graceful shutdown (ADR 0016). Since ADR 0048 it also
+      # launches the jar with -Dloader.path, so it doubles as the standing
+      # check that an externally supplied driver still loads - the only way
+      # an operator can supply one now.
+      - name: Packaged-jar smoke test
+        run: bash scripts/smoke-test.sh
+
+      # Keeps the assembled attribution notices honest: if a dependency
+      # changed, the committed file must be regenerated in the same commit.
+      # Fails if the committed notices drift from the artifact, AND if any
+      # shipped component lacks the licence material its licence requires.
+      - name: Third-party licence obligations discharged
+        run: bash scripts/notices-check.sh
+
+      # A real, previously-shipped bug (ADR 0031): a client that sent a
+      # tool call and closed stdin before the response arrived could have
+      # that response silently dropped. Confirmed to fail against the
+      # pre-fix code and pass against the fix - wired in here so a future
+      # regression fails CI instead of waiting to be caught by hand, the
+      # same gap this script itself was written to close.
+      - name: Stdin-EOF shutdown race regression test
+        run: bash scripts/eof-shutdown-race-test.sh
+
+      # Only on promotion to main, or on demand (#106). This step used to
+      # run on every push and PR: 75 uploads of a ~47 MB fat jar in one
+      # billing cycle, 3,343 MB against a 500 MB free-tier allowance. The
+      # allowance is a per-cycle upload counter rather than a live storage
+      # measure - deleting old artifacts does not free it, and retention is
+      # already at the 1-day minimum - so the only lever is uploading less.
+      #
+      # What that cost was not the jar itself but the artifacts that matter:
+      # the 79 KB Find Security Bugs report (ADR 0046) and the ~10 KB
+      # Failsafe live-Db2 reports, which the 2026-09-17 review explicitly
+      # asked to be retained as evidence. Both were failing to upload
+      # because a convenience artifact nobody consumes had eaten the budget.
+      #
+      # Deliberately no continue-on-error here any more. It was added after
+      # the previous quota incident and hid this one for 75 runs: a
+      # workaround that suppresses the symptom also removes the signal that
+      # the cause is still there. With uploads now rare, a failure is worth
+      # failing the job over.
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        with:
+          name: db2-mcp-server-jar
+          path: target/db2-mcp-server-*.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history: the point of this gate is that a secret committed
+          # and later removed is still in the history, and still leaked.
+          fetch-depth: 0
+
+      # Runs the gitleaks CLI directly instead of gitleaks/gitleaks-action.
+      #
+      # The action refuses to run in an organization without a paid licence
+      # key: "[db2-mcp-server] is an organization. License key is required."
+      # It had always worked before because the previous repository was
+      # under a personal account, where the action is free. The first run in
+      # the organization failed on that alone - gitleaks never scanned
+      # anything, so the red check said nothing about this project's
+      # contents.
+      #
+      # The scanner itself is MIT-licensed and free; only the Action wrapper
+      # is gated. So the gate is kept and the wrapper dropped, rather than
+      # weakening the check or paying for a wrapper around a free tool.
+      #
+      # The version is pinned and the checksum verified: a secret scanner
+      # fetched over the network at build time is itself worth treating as
+      # untrusted, and an unpinned 'latest' would silently change what this
+      # gate does.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: '8.30.1'
+        run: |
+          set -euo pipefail
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -sSfL -o gitleaks.tar.gz "${base}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o checksums.txt "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          # Verified against the checksum upstream publishes for this
+          # exact release, read at run time, rather than a value pasted
+          # into this file by hand. A scanner fetched over the network at
+          # build time is itself worth treating as untrusted.
+          expected=$(awk -v f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" '$2==f || $2=="*"f {print $1}' checksums.txt)
+          test -n "$expected"
+          echo "${expected}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          chmod +x gitleaks
+          ./gitleaks version
+
+      # Non-zero exit on any finding, which fails the job. `detect` walks the
+      # whole Git history, not just the working tree.
+      - name: Scan the full history for secrets
+        run: ./gitleaks detect --source . --redact --verbose --exit-code 1

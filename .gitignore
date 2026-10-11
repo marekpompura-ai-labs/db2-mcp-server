@@ -1,0 +1,19 @@
+target/
+config/.env
+tests.output/
+logs/
+
+*.class
+*.log
+
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# scripts/verify-release.sh working files
+.verify-*
+
+# Python bytecode from scripts/ (notices generator, archive scanner)
+__pycache__/
+*.py[cod]

@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # No target-branch here: this public edition has a single branch, so the
+  # default (the default branch) is correct. The private development
+  # repository sets target-branch explicitly, because without it dependency
+  # bumps open against the default branch and structurally bypass its
+  # feature-branch -> devel -> main flow no matter who reviews them.
+  #
+  # Dependabot reads this file from the default branch, so changes to it
+  # take effect only once merged there.
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

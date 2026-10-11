@@ -1,0 +1,880 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.1</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>io.github.marekpompura</groupId>
+    <artifactId>db2-mcp-server</artifactId>
+    <version>1.0.1</version>
+    <name>Governed Db2 MCP Server</name>
+    <description>Java 21 reference implementation for governed, read-only AI access to IBM Db2 via MCP</description>
+
+    <!-- Without these, the CycloneDX root component inherits
+         spring-boot-starter-parent's <url> and <scm> and appends this
+         artifactId, emitting
+         `https://spring.io/projects/spring-boot/db2-mcp-server` and
+         `https://github.com/spring-projects/spring-boot/db2-mcp-server`.
+         Both are nonexistent paths, and both imply this project is
+         Spring-owned. Found by the 2026-10-10 review reading the shipped
+         SBOM rather than the POM.
+
+         These point at the PUBLIC distribution repository, which is where a
+         recipient of the jar or the SBOM can actually find this project.
+         Development happens in a separate private repository whose URL is
+         deliberately absent from every published artifact. -->
+    <url>https://github.com/marekpompura-ai-labs/db2-mcp-server</url>
+    <scm>
+        <connection>scm:git:https://github.com/marekpompura-ai-labs/db2-mcp-server.git</connection>
+        <developerConnection>scm:git:https://github.com/marekpompura-ai-labs/db2-mcp-server.git</developerConnection>
+        <url>https://github.com/marekpompura-ai-labs/db2-mcp-server</url>
+    </scm>
+
+    <!-- PolyForm Strict 1.0.0 has no SPDX short identifier, so it is declared
+         by name and canonical URL rather than by id. <distribution> is
+         `manual`, not `repo`: Strict does not grant redistribution rights, so
+         claiming `repo` here would assert something the licence does not.
+         Release 1.0.0 was Apache-2.0 - see LICENSE-HISTORY.md; those rights
+         are not withdrawn. Additional evaluation rights for this release are
+         in ENTERPRISE-EVALUATION.md. -->
+    <licenses>
+        <license>
+            <name>PolyForm Strict License 1.0.0</name>
+            <url>https://polyformproject.org/licenses/strict/1.0.0</url>
+            <distribution>manual</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <java.version>21</java.version>
+        <spring-ai.version>2.0.1</spring-ai.version>
+        <db2-jcc.version>12.1.5.0</db2-jcc.version>
+        <archunit.version>1.5.0</archunit.version>
+        <jsqlparser.version>5.4</jsqlparser.version>
+        <!-- Overrides spring-boot-starter-parent:4.1.1's managed 11.0.24 -
+             CVE-2026-65182/CVE-2026-65905/CVE-2026-68525 (all CRITICAL),
+             found by the new dependency-vulnerability CI gate (issue #42)
+             the moment it actually ran against this project's real
+             dependency tree. All three fixed in 11.0.25. This project only
+             pulls tomcat-embed-core in for the opt-in, off-by-default HTTP
+             transport prototype (ADR 0037) - not reachable via the default
+             stdio-only configuration - but the CI gate doesn't know that,
+             and shouldn't have to: fixing the version is simpler and safer
+             than teaching the gate about this project's own runtime
+             conditionals. -->
+        <tomcat.version>11.0.25</tomcat.version>
+        <!-- Overrides spring-boot-starter-parent:4.1.1's managed 3.1.5.
+             CVE-2026-68497 in tools.jackson.core:jackson-databind 3.1.5,
+             HIGH, fixed in 3.1.6 and 3.2.2. Found by the Trivy SBOM gate on
+             2026-10-11; the same gate fails identically on main at 933e12c,
+             so it is not a regression from the 1.0.1 licensing work.
+
+             Raising the BOM rather than pinning databind alone, because it
+             also removes a skew this project had been carrying: an earlier
+             fix pinned tools.jackson.core:jackson-core to 3.2.2 to escape a
+             REAL binary incompatibility - jackson-databind 3.1.4 threw
+             MalformedParameterizedTypeException on 3.0.3's TreeCodec
+             generic signature, because com.github.victools:jsonschema-generator
+             drags in an older core and nearest-wins mediation picked it.
+             That left core at 3.2.x and databind at 3.1.x, which worked but
+             was two numbers that had to be reasoned about separately.
+
+             One BOM version now governs core, databind and
+             dataformat-yaml together, and the separate core pin is gone -
+             a redundant pin at the same version is a trap, because the next
+             BOM bump would silently hold core back and recreate exactly the
+             skew it was added to fix. -->
+        <jackson-bom.version>3.2.3</jackson-bom.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+
+            <!-- Security bump, 2026-10-11. Trivy's SBOM gate (issue #42's
+                 dependency-vulnerability check) went red on nine HIGH
+                 Jackson advisories published after the last CI run. The
+                 same gate fails identically on main at 933e12c, so this is
+                 not a regression from the 1.0.1 licensing work - the
+                 already-published code carries the same CVEs.
+
+                 com.fasterxml.jackson.core 2.x arrives transitively via
+                 com.github.victools:jsonschema-generator and is NOT managed
+                 by spring-boot-starter-parent 4.1.1, which moved to Jackson
+                 3 (jackson-bom.version=3.1.5). Nothing was pinning the 2.x
+                 line, which is how it sat at 2.21.5.
+
+                   jackson-core     2.21.5 -> 2.21.7  CVE-2026-89407, -89425
+                   jackson-databind 2.21.5 -> 2.21.7  CVE-2026-68497, -91776, -91777
+
+                 2.21.7, not 2.22.3: a patch bump within the line already in
+                 use. jackson-annotations stays at the 2.22 the tree already
+                 resolved, preserving the existing annotations-ahead-of-core
+                 relationship rather than introducing a new one. -->
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-core</artifactId>
+                <version>2.21.7</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>2.21.7</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- MCP server, stdio transport (ADR 0001) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server</artifactId>
+            <!-- ADR 0049. spring-ai-template-st is Spring AI's
+                 StringTemplate-based prompt-template support. This project
+                 renders no prompts - it is an MCP server exposing typed
+                 tools - and imports nothing from it. Verified unused by a
+                 full build, the whole test suite, and a real end-to-end
+                 MCP session against a live Db2 with zero
+                 ClassNotFoundException.
+
+                 Excluded for a licensing reason, not a size one. It drags
+                 in org.antlr:ST4:4.3.4, declared BSD-4-Clause - the variant
+                 WITH the advertising clause, requiring every advertising
+                 material mentioning the software's features to carry an
+                 acknowledgement - and org.antlr:antlr-runtime:3.5.3,
+                 declared only as "BSD licence" with no SPDX identifier, no
+                 licence text in the artifact and no text in the SBOM, so
+                 which BSD variant governs it is not established.
+
+                 Those were the only two shipped components whose
+                 redistribution terms this project could not verify, which
+                 is the same reason the IBM driver is not distributed
+                 (ADR 0048). Carrying an unverifiable licence and an
+                 ongoing marketing obligation to support a feature we do
+                 not use is not a trade worth making. -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.ai</groupId>
+                    <artifactId>spring-ai-template-st</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- HTTP transport prototype (thread 6, ADR 0037), opt-in via
+             db2mcp.http.enabled - deliberately just the embedded Tomcat
+             servlet container, not spring-ai-starter-mcp-server-webmvc or
+             spring-boot-starter-web: this pulls in tomcat-embed-core (the
+             jakarta.servlet API) and nothing else - no spring-webmvc, no
+             DispatcherServlet, no second competing MCP autoconfiguration
+             module. HttpTransportConfig hand-registers the SDK's
+             HttpServletStreamableServerTransportProvider directly as a
+             plain servlet, the same "hand-wire, don't rely on framework
+             autoconfiguration magic" convention StdioLifecycleConfig
+             already established for stdio. Confirmed via the real POM
+             graph that this stays true even with the dependency present
+             at all times (spring.main.web-application-type defaults to
+             "none", so no servlet container actually starts unless
+             db2mcp.http.enabled explicitly flips it to "servlet" - see
+             application.yml). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-tomcat</artifactId>
+        </dependency>
+        <!-- Required alongside spring-boot-starter-tomcat above: Spring Boot
+             4.1's ServletWebServerApplicationContext (relocated to
+             spring-boot-web-server's org.springframework.boot.web.server.servlet.context
+             package) still extends spring-web's GenericWebApplicationContext
+             directly (confirmed via javap) - without spring-web on the
+             classpath, spring.main.web-application-type: servlet fails at
+             startup with a missing class, even though tomcat-embed-core
+             alone provides the servlet API. This is NOT spring-webmvc
+             (DispatcherServlet stays absent, confirmed via
+             `mvn dependency:tree` after adding this) - spring-web only
+             supplies the core web application-context abstractions every
+             servlet-based Spring Boot app needs, regardless of whether
+             Spring MVC is present. -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
+
+        <!-- StdioLifecycleConfig and McpToolException import ObjectMapper/
+             JsonProcessingException directly - previously an undeclared,
+             implicit dependency that only compiled because
+             spring-boot-starter-actuator (below) happened to pull Jackson in
+             transitively at compile scope. spring-ai-bom 2.0.0 added its own
+             dependencyManagement entries for these same Jackson artifacts at
+             runtime scope, which - since this project imports spring-ai-bom -
+             took priority project-wide and demoted the actuator-sourced
+             compile-scope pull-through, breaking that implicit dependency
+             (confirmed via `mvn dependency:tree`, comparing before/after:
+             jackson-databind/jackson-core/jackson-datatype-jsr310 all
+             shifted from :compile to :runtime under the same
+             spring-boot-starter-actuator branch, jackson-annotations
+             unaffected). Declared explicitly at compile scope here instead
+             of reverting the bump or blindly pinning a version: code that
+             directly imports a library should declare it, not rely on
+             however another dependency's transitive graph happens to expose
+             it - this is the correct fix for the actual root cause, not a
+             workaround for spring-ai-bom 2.0's change. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <!-- jackson-annotations is a single shared artifact used by both classic
+             Jackson 2.x (jackson-databind above) and Jackson 3.x
+             (tools.jackson.core:jackson-databind, pulled in transitively for the
+             MCP SDK's Jackson-backed McpJsonMapper) - deliberately kept under the
+             old com.fasterxml.jackson.annotation package/groupId for exactly this
+             cross-compatibility. spring-boot-starter-parent 3.4.5 manages it at
+             2.18.3, too old for Jackson 3.1.4's databind (pulled in transitively
+             via spring-ai-model -> jsonschema-generator), which requires 2.21+
+             (confirmed against jackson-databind 3.1.4's own parent BOM,
+             jackson.version.annotations=2.21) - without this, MethodToolCallback's
+             static initializer throws NoClassDefFoundError on JsonSerializeAs, a
+             class 2.18.3 doesn't have. 2.21 is safe for the classic Jackson 2.18.3
+             databind above too: jackson-annotations releases are additive within
+             the 2.x line, never removing what older databind versions need. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+            <version>2.22</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <!-- Db2 JDBC driver, version-pinned (ADR 0003), TESTED against but
+             neither compiled against nor distributed (ADR 0048).
+
+             `test`, not `provided`. The 2026-10-10 review asked for an
+             explicit test-only arrangement if no compile-time dependency
+             exists, and none does: `src/main/java` contains **zero**
+             references to `com.ibm.db2` - the adapter is written entirely
+             against `java.sql` and Spring JDBC, and the driver is reached
+             only through `DriverManager`/Hikari by class name. Exactly three
+             test classes name it (`Db2LiveCatalogIT`,
+             `Db2ConnectivityCheckerTest`, `FakeAdapterMcpToolsTest`), so
+             `test` scope is the narrowest scope that still works.
+
+             What this buys over `provided`: the driver is now absent from
+             every classpath Maven hands to anything except the test
+             classpath. `provided` left it on the compile classpath, where it
+             was never needed, and - because repackage bundles provided-scope
+             dependencies by design, on the assumption a container supplies
+             them - it also left it inside the fat jar. That is how the 1.0.0
+             build came to contain jcc-12.1.5.0.jar: never distributed, but it
+             would have been.
+
+             The <excludes> entry on the repackage goal is kept even though
+             `test` scope alone now suffices. It costs nothing and it is the
+             check that survives someone widening this scope again.
+
+             Consequence for `spring-boot:run`: the driver is no longer on the
+             run classpath either, so running from source needs it supplied
+             the same way the packaged jar does -
+             `-Dspring-boot.run.additionalClasspathElements`. Documented in
+             docs/operations/external-jdbc-driver.md.
+
+             The build still RESOLVES the artifact from Maven Central to put
+             it on the test classpath. That is a download under IBM's own
+             terms, not a redistribution by this project, and it is stated
+             plainly in the operator documentation rather than left to be
+             discovered. -->
+        <dependency>
+            <groupId>com.ibm.db2</groupId>
+            <artifactId>jcc</artifactId>
+            <version>${db2-jcc.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Bean Validation for @ConfigurationProperties (Phase 5, ADR 0015):
+             fails startup on an invalid config value instead of surfacing it
+             as a confusing runtime error later. No web starter is pulled in
+             transitively - ADR 0001's no-network-exposure property holds. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Structural SQL validation for executeQuery, replacing regex-only checks (ADR 0007) -->
+        <dependency>
+            <groupId>com.github.jsqlparser</groupId>
+            <artifactId>jsqlparser</artifactId>
+            <version>${jsqlparser.version}</version>
+        </dependency>
+
+        <!-- MeterRegistry + auto-configured binders only - no web starter is present,
+             so no HTTP endpoint is exposed (ADR 0011, keeps ADR 0001's no-network-exposure property) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Genuine OpenTelemetry spans, exported as log lines - no collector is reachable
+             from this environment (ADR 0009), so the logging exporter is used instead of
+             a real OTLP exporter (ADR 0012). Wiring the bean is not enough on its own to
+             make this true (CR-010, ADR 0030) - see jul-to-slf4j below. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+            <!-- ADR 0049. aopalliance:aopalliance:1.0 is declared
+                 "Public Domain" with no URL, no licence text in the jar
+                 and none in the SBOM. A public-domain dedication is not a
+                 licence and its effect varies by jurisdiction, so the
+                 terms on which it may be redistributed are not
+                 established.
+
+                 It is four interfaces, and Spring Framework ships its own
+                 copies of them in spring-aop, which is already on the
+                 classpath. Removing it changes nothing at runtime:
+                 verified by the full test suite including
+                 ObservabilityExportIntegrationTest, and by a real MCP
+                 session that exported 99 span and metric records with no
+                 ClassNotFoundException. -->
+            <exclusions>
+                <exclusion>
+                    <groupId>aopalliance</groupId>
+                    <artifactId>aopalliance</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- Spring Boot 4's own auto-configuration wiring for micrometer-tracing-bridge-otel's
+             bridge classes into a Tracer bean - previously bundled inside
+             spring-boot-actuator-autoconfigure (3.x), now split into its own module as
+             part of Spring Boot 4's actuator reorganization (confirmed by diffing
+             spring-boot-actuator-autoconfigure's own AutoConfiguration.imports file
+             between 3.4.5 and 4.1.0: every tracing.* autoconfiguration class - Otel,
+             Brave, Noop, Zipkin, Wavefront, OTLP - is present in 3.4.5 and entirely
+             absent from 4.1.0). Without this, no Tracer bean exists at all and
+             SpanRecorder (which requires one) fails startup outright. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-micrometer-tracing-opentelemetry</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-logging</artifactId>
+        </dependency>
+        <!-- Dynatrace trace ingest (thread 5, ADR 0036) - OTLP is the only path,
+             no Micrometer-native tracing bridge exists for Dynatrace. Dynatrace's
+             OTLP endpoint is HTTP-only, so the combined artifact (bundling
+             OtlpHttpSpanExporter) is used. Version is Boot-managed. -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+        <!-- Dynatrace metrics ingest (thread 5, ADR 0036) - Micrometer-native
+             DynatraceMeterRegistry against Dynatrace's Metrics API v2, chosen
+             over the generic OTLP metrics exporter specifically to avoid its
+             delta-temporality requirement. Version is Boot-managed. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-dynatrace</artifactId>
+        </dependency>
+
+        <!-- LoggingSpanExporter logs via java.util.logging, not SLF4J (CR-010, ADR 0030).
+             Already present transitively via spring-boot-starter-logging, but pinned
+             explicitly since Db2McpServerApplication.main() depends on it directly to
+             install the JUL-to-SLF4J bridge - without that install call, every span
+             export is a real, verified no-op. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>jul-to-slf4j</artifactId>
+        </dependency>
+
+        <!-- Tests
+             micrometer-tracing-test's SimpleTracer records spans in memory for
+             assertions, same role as SimpleMeterRegistry in ADR 0011 (ADR 0012). -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- spring-boot-starter-test does not pull this in; required for surefire to
+             actually execute non-Jupiter JUnit Platform engines such as ArchUnit's. -->
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Tier 1 integration coverage without a live Db2 instance (ADR 0009).
+             Version managed by spring-boot-starter-parent. -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!-- Ship the licence and attribution material INSIDE the artifact.
+             The 2026-10-10 review's point: having the documents in the
+             repository does not discharge anything for someone who receives
+             only the jar, and Apache-2.0 4(a), MIT and EPL-2.0 3.2(b) all
+             require the material to accompany the distribution. Copying them
+             to META-INF/legal/ means a bare jar download carries its own
+             compliance material and no separate release bundle is mandatory.
+
+             No circularity, though it looks like it: THIRD-PARTY-NOTICES.md
+             is generated FROM the jar's BOOT-INF/lib set, which these
+             META-INF/legal entries do not affect. The committed file is kept
+             in step with that set by the generator's own completeness
+             check in CI, so what gets embedded is verified against the
+             artifact it describes. -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${project.basedir}</directory>
+                <targetPath>META-INF/legal</targetPath>
+                <filtering>false</filtering>
+                <includes>
+                    <include>LICENSE</include>
+                    <include>NOTICE</include>
+                    <include>LICENSE-HISTORY.md</include>
+                    <include>LICENSE-ELECTIONS.md</include>
+                    <include>ENTERPRISE-EVALUATION.md</include>
+                    <include>THIRD-PARTY-NOTICES.md</include>
+                    <include>SOURCE-AVAILABILITY.md</include>
+                    <include>LICENSES/*</include>
+                    <include>third-party-licenses/*</include>
+                </includes>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- ADR 0048. Two settings, each doing a different job.
+
+                         <excludes>: physically removes the IBM driver from
+                         BOOT-INF/lib. Required in addition to `provided`
+                         scope, which repackage does not treat as "omit".
+                         Verified by inspecting the built jar, not assumed -
+                         see scripts/verify-no-jcc.sh, wired into
+                         verify-release.sh.
+
+                         <layout>ZIP</layout>: once the driver is not in the
+                         jar, the operator has to be able to put it on the
+                         classpath from outside. ZIP makes PropertiesLauncher
+                         the manifest Main-Class; PropertiesLauncher reads
+                         -Dloader.path, which JarLauncher does not support.
+                         This is the documented, supported mechanism for
+                         exactly this case; the alternative (exploding the
+                         jar and managing -cp by hand) pushes the problem
+                         onto every operator. -->
+                    <excludes>
+                        <exclude>
+                            <groupId>com.ibm.db2</groupId>
+                            <artifactId>jcc</artifactId>
+                        </exclude>
+                    </excludes>
+                    <layout>ZIP</layout>
+                </configuration>
+            </plugin>
+            <!-- P1-5, 2026-09-01 master-brief gap review, issue #42:
+                 "several planned quality gates are absent," Enforcer named
+                 as one of four. Deliberately conservative rule set - each
+                 rule below was run against this actual project first and
+                 confirmed to pass cleanly (or fail for a genuine reason,
+                 then fixed) before being locked in, not written on spec.
+                 dependencyConvergence was tried and deliberately excluded:
+                 it flags this project's own intentional BOM-override
+                 properties (tomcat.version, jackson-core, ADR 0042/#42's
+                 own tomcat CVE fix among them) as convergence errors,
+                 punishing the exact pattern this project already uses
+                 correctly - enforcing it would mean either reverting real,
+                 verified fixes or drowning genuine future convergence bugs
+                 in expected noise. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-build-environment</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,)</version>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[3.9,)</version>
+                                </requireMavenVersion>
+                                <!-- Catches copy-paste drift (the same
+                                     dependency declared twice, possibly at
+                                     two different versions) that Maven
+                                     itself resolves silently rather than
+                                     rejecting. -->
+                                <banDuplicatePomDependencyVersions />
+                                <!-- Every dependency this project's own
+                                     pom.xml declares a version override for
+                                     must actually resolve to that version -
+                                     confirms an override (like
+                                     tomcat.version above) is genuinely
+                                     taking effect, not silently shadowed by
+                                     a nearer-wins transitive declaration. -->
+                                <requireUpperBoundDeps />
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Generates target/bom.json (CycloneDX) on every `package` -
+                 feeds the CI dependency-vulnerability scan (issue #42,
+                 2026-09-01 master-brief gap review P1-5). Scanning a
+                 generated SBOM, not raw pom.xml or the packaged jar
+                 directly: pointing a scanner at pom.xml makes it
+                 re-resolve the whole dependency tree over the network
+                 itself (confirmed to hit a real Maven Central 429 rate
+                 limit locally), and pointing one at the fat jar found
+                 zero scannable files for reasons not worth chasing - an
+                 SBOM Maven itself already resolved sidesteps both. -->
+            <plugin>
+                <groupId>org.cyclonedx</groupId>
+                <artifactId>cyclonedx-maven-plugin</artifactId>
+                <version>2.9.3</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>makeAggregateBom</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Two Surefire executions, not one (GitHub issue #30): several
+                 @SpringBootTest classes here each boot a real, uncached (or
+                 differently-cached) ApplicationContext with its own embedded
+                 Tomcat/metrics-publisher threads. Left in the default,
+                 fork-reusing execution, enough of them accumulate live,
+                 non-daemon threads in the SAME JVM fork to keep it alive
+                 past Surefire's patience for a clean exit - forcing a kill
+                 that cuts off JaCoCo's shutdown-hook-based coverage dump for
+                 whatever hadn't been flushed yet (confirmed root cause of
+                 the intermittent 0.00%-coverage CI failures on `policy.*`
+                 packages; see issue #30 for the full thread-dump-forensics
+                 writeup). Isolating just these classes into their own
+                 execution with reuseForks=false gives each one a fresh JVM,
+                 so no leak from one class's context can accumulate with
+                 another's - the actual mechanism behind the hang, not
+                 merely a slower/more-patient workaround. Not applied to the
+                 whole suite: reuseForks=false would add real JVM-startup
+                 overhead per class, wasted on the ~300 other, fast unit
+                 tests that never exhibited this problem. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-test</id>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/DynatraceDisabledIntegrationTest.java</exclude>
+                                <exclude>**/DynatraceObservabilityIntegrationTest.java</exclude>
+                                <exclude>**/DynatraceStartupFailureIntegrationTest.java</exclude>
+                                <exclude>**/ObservabilityExportIntegrationTest.java</exclude>
+                                <exclude>**/HttpTransportDisabledIntegrationTest.java</exclude>
+                                <exclude>**/HttpTransportIntegrationTest.java</exclude>
+                                <exclude>**/HttpTransportStartupFailureIntegrationTest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>isolated-spring-context-tests</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <reuseForks>false</reuseForks>
+                            <includes>
+                                <include>**/DynatraceDisabledIntegrationTest.java</include>
+                                <include>**/DynatraceObservabilityIntegrationTest.java</include>
+                                <include>**/DynatraceStartupFailureIntegrationTest.java</include>
+                                <include>**/ObservabilityExportIntegrationTest.java</include>
+                                <include>**/HttpTransportDisabledIntegrationTest.java</include>
+                                <include>**/HttpTransportIntegrationTest.java</include>
+                                <include>**/HttpTransportStartupFailureIntegrationTest.java</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Runs *IT.java integration tests during the verify phase; these
+                 require a real Db2 instance. Explicit <includes> (CR-006,
+                 2026-08-14 code review, ADR 0024): Failsafe's default include
+                 pattern already matches *IT.java, but stating it here removes
+                 any doubt after this project once had *IntegrationTest.java
+                 files that didn't match any Failsafe pattern at all and ran
+                 under Surefire instead, unnoticed until an external review
+                 found it. Each *IT.java class self-skips (JUnit 5
+                 @EnabledIfEnvironmentVariable) when no live Db2 is reachable,
+                 which is always true in CI and in this project's own
+                 development environment (ADR 0009) - -DskipITs below skips
+                 attempting the phase at all, a faster no-op than letting
+                 Failsafe run and self-skip one by one. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Coverage gate on the policy package (Phase 5, ADR 0014): this is
+                 the code that decides ALLOWED vs REJECTED, so it carries a higher
+                 bar than the rest of the codebase. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.15</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <!-- jsqlparser's JavaCC-generated lexer
+                                 (CCJSqlParserTokenManager.jjMoveNfa_0) is
+                                 already close to the JVM's 64KB method
+                                 bytecode limit; JaCoCo's coverage-probe
+                                 instrumentation pushes it over that hard
+                                 limit (ASM MethodTooLargeException),
+                                 crashing instrumentation for the rest of
+                                 that Surefire fork and silently zeroing
+                                 out coverage for otherwise-covered
+                                 packages (GitHub issue #30). Excluded here
+                                 since this is third-party generated code
+                                 this project's own coverage gate was never
+                                 meant to measure. -->
+                            <excludes>
+                                <exclude>net/sf/jsqlparser/**</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>check-policy-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>PACKAGE</element>
+                                    <includes>
+                                        <include>io.github.marekpompura.db2mcp.policy.*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.95</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- P1-5, 2026-09-01 master-brief gap review, issue #42.
+                 Deliberately conservative: no full AST reformatter
+                 (googleJavaFormat/palantirJavaFormat) - this codebase's
+                 existing hand-formatting (wrapped method chains, aligned
+                 comments) doesn't match any standard formatter's output,
+                 and a full reformat would produce a diff spanning every
+                 file in the project for zero behavioral benefit, drowning
+                 real reviewable changes in reformatting noise indefinitely
+                 afterward. Scoped to mechanical, genuinely low-risk checks
+                 instead: import order/no-wildcard, unused-import removal,
+                 and whitespace/newline hygiene - real gaps confirmed by
+                 running spotless:check against this project's actual
+                 source before locking the rule set in. -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>3.10.2</version>
+                <configuration>
+                    <!-- Explicit, not left to Spotless's own default: this
+                         repo's .gitattributes already normalizes text
+                         files to LF in storage (fixed for exactly this
+                         cross-platform reason, issue #15/ADR-adjacent
+                         Windows CRLF fix) - GIT_ATTRIBUTES makes Spotless
+                         check against what .gitattributes actually
+                         declares per file, so a Windows checkout's local
+                         CRLF working-copy line endings (a checkout
+                         artifact, not a real content difference) don't
+                         register as violations. Confirmed the difference
+                         directly: every one of the 52 "violations" a
+                         default-config first run reported turned out to be
+                         this, not a real import/whitespace issue. -->
+                    <lineEndings>GIT_ATTRIBUTES</lineEndings>
+                    <java>
+                        <removeUnusedImports />
+                        <importOrder />
+                        <trimTrailingWhitespace />
+                        <endWithNewline />
+                    </java>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotless-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- P1-5, 2026-09-01 master-brief gap review, issue #42, fourth
+                 and last of the four named gates. `effort=Max`/`threshold=Medium`
+                 - the defaults - run first against this actual codebase
+                 before any exclusion was written, matching this project's
+                 own "test the claim, don't assume" convention (ADR 0005/0014
+                 both record a coverage gate's first version passing
+                 trivially until deliberately broken to prove it actually
+                 checks something - the same discipline applies here in
+                 reverse: don't suppress a finding before confirming it's
+                 not real). -->
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.10.4.1</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Medium</threshold>
+                    <excludeFilterFile>spotbugs-exclude.xml</excludeFilterFile>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotbugs-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Security static analysis, deliberately NOT part of the default
+             build (ADR 0046, #86). SpotBugs is a correctness analyser;
+             Find Security Bugs adds the injection/crypto detectors that
+             actually speak to this project's threat model.
+
+             Why a profile rather than another always-on gate like ADR
+             0043's three: as a per-push gate it would have to fail on the
+             five known, already-defended dynamic-SQL sites, which means
+             five permanent exclusions - and an exclusion suppresses the
+             *next* finding at that same line as effectively as the current
+             one. Running it at promotion time instead keeps the signal and
+             needs no exclusions at all. It also keeps FSB's slower release
+             cadence off the critical path: a version lag behind SpotBugs
+             cannot block a build it is not part of.
+
+                 mvn verify                    -> unchanged, FSB absent
+                 mvn verify -Psecurity-scan    -> FSB runs, reports, never fails
+
+             Report-only is the point, not a weakness: the baseline is five
+             findings, so "six" is the signal, and that is a judgement a
+             human makes at promotion time, not a threshold worth
+             automating. See docs/adr/0046-security-scan-at-promotion.md. -->
+        <profile>
+            <id>security-scan</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.spotbugs</groupId>
+                        <artifactId>spotbugs-maven-plugin</artifactId>
+                        <configuration>
+                            <plugins>
+                                <plugin>
+                                    <groupId>com.h3xstream.findsecbugs</groupId>
+                                    <artifactId>findsecbugs-plugin</artifactId>
+                                    <version>1.14.0</version>
+                                </plugin>
+                            </plugins>
+                            <!-- Report, never block - see the rationale above. -->
+                            <failOnError>false</failOnError>
+                            <xmlOutput>true</xmlOutput>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

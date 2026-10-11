@@ -1,0 +1,53 @@
+<configuration>
+  <!-- stdout is reserved for the MCP JSON-RPC stream; all logs go to stderr (ADR 0001) -->
+  <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %5p --- [%15.15t] %-40.40logger{39} : %m%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Path configurable via db2mcp.audit.file (CR-011, ADR 0026) - the same
+       property AuditFileAvailabilityValidator checks is writable at startup. -->
+  <springProperty scope="context" name="AUDIT_FILE_PATH" source="db2mcp.audit.file" defaultValue="logs/audit.log"/>
+
+  <!-- Security audit trail (ADR 0010), separate stream from the general
+       application log - never sensitive data, see AuditLogger. Bounded and
+       rolling (CR-011, ADR 0026): daily rollover or 10MB, whichever comes
+       first; 30 days of history kept, capped at 300MB total on disk so the
+       audit trail cannot fill the volume unbounded. -->
+  <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${AUDIT_FILE_PATH}</file>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>${AUDIT_FILE_PATH}.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
+      <maxFileSize>10MB</maxFileSize>
+      <maxHistory>30</maxHistory>
+      <totalSizeCap>300MB</totalSizeCap>
+    </rollingPolicy>
+    <encoder>
+      <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %m%n</pattern>
+    </encoder>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="STDERR" />
+  </root>
+
+  <!-- P0-3 (2026-09-01 master-brief gap review): this project's own package
+       was unconditionally DEBUG, with no profile guard - meaning
+       Db2ConnectivityChecker's raw-exception detail log
+       (log.debug("...failure detail", e)) was enabled by default in every
+       environment, not an opt-in diagnostic mode. INFO by default now,
+       matching the root logger; an operator who genuinely needs DEBUG
+       diagnostics can opt in with Spring Boot's own standard
+       logging.level.io.github.marekpompura.db2mcp=DEBUG property (env var
+       LOGGING_LEVEL_IO_GITHUB_MAREKPOMPURA_DB2MCP=DEBUG), which Spring Boot
+       applies after this file configures logback and so still overrides
+       this element's own level. No new project-specific property invented
+       for something Spring Boot already provides. -->
+  <logger name="io.github.marekpompura.db2mcp" level="INFO" />
+
+  <logger name="AUDIT" level="INFO" additivity="false">
+    <appender-ref ref="AUDIT_FILE" />
+  </logger>
+</configuration>

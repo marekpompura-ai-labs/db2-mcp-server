@@ -1,0 +1,86 @@
+{
+  "_comment": [
+    "Version-pinned upstream licence material for shipped components whose",
+    "own artifact carries none. A missing embedded file does not remove the",
+    "obligation, so the material is obtained from upstream, pinned to the",
+    "exact release, and checksummed - not inferred from an SPDX identifier.",
+    "",
+    "Read by scripts/generate-third-party-notices.py. Its --check fails if a",
+    "shipped component's required material is satisfied by neither its own",
+    "artifact nor this manifest.",
+    "",
+    "Provenance rule: every entry records how the text was obtained and a",
+    "sha256 of the file as committed. Where a tag was dereferenced to a",
+    "commit, the commit is recorded, because a branch is not proof of a",
+    "historical version."
+  ],
+  "elections": {
+    "_comment": "Elections for release 1.0.1; mirrors LICENSE-ELECTIONS.md.",
+    "ch.qos.logback:logback-classic:1.5.38": "EPL-2.0",
+    "ch.qos.logback:logback-core:1.5.38": "EPL-2.0",
+    "jakarta.annotation:jakarta.annotation-api:3.0.0": "EPL-2.0",
+    "com.github.jsqlparser:jsqlparser:5.4": "Apache-2.0",
+    "org.hdrhistogram:HdrHistogram:2.2.2": "BSD-2-Clause"
+  },
+  "shared_by_licence": {
+    "_comment": "Licence -> the shared text that discharges it for ANY shipped component electing that licence and carrying no material of its own. Rule-based rather than a per-component list, because Apache-2.0 alone covers 38 components and enumerating them would drift the moment a dependency changes.",
+    "Apache-2.0": "Apache-2.0.txt",
+    "EPL-2.0": "EPL-2.0.txt"
+  },
+  "licence_texts": {
+    "Apache-2.0.txt": {
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "provenance": "Canonical Apache License 2.0 text, as published by the Apache Software Foundation. Identical to the copy at LICENSES/Apache-2.0.txt, which this project itself released 1.0.0 under.",
+      "satisfies": "Apache-2.0 section 4(a): recipients must be given a copy of the License."
+    },
+    "EPL-2.0.txt": {
+      "sha256": "61616a4066701bc7888ad910de1633dbc55eb4d4d30d930feef55afb9492e33c",
+      "provenance": "Canonical Eclipse Public License 2.0 text, captured by cyclonedx-maven-plugin with includeLicenseText=true during the Phase 1 licensing review. Sections 3.1 (including 3.1(a)) and 3.3 were verified word-for-word against the Eclipse Foundation's own published text at https://www.eclipse.org/org/documents/epl-2.0/EPL-2.0.txt on 2026-10-10.",
+      "satisfies": "EPL-2.0 section 3.2(b) (a copy of the Agreement accompanies the Program) and supports the section 3.1(a) statement in SOURCE-AVAILABILITY.md."
+    },
+    "MIT-modelcontextprotocol-java-sdk-2.0.0.txt": {
+      "sha256": "077f5c1f533a15ec6c67d61b0c09b5df60bb57a1839a7d1fb27faaf7b746195f",
+      "provenance": "github.com/modelcontextprotocol/java-sdk, file LICENSE, read at the commit the v2.0.0 tag resolves to. The annotated tag object 7fcb504ce1d7d0898fbfc341d0b5389a7a9623ff was dereferenced to commit f56d038409473210c59d6eddef09c4b5cd36042b, which matches the commit the 2026-10-10 review identified for the v2.0.0 release. Fetched via the GitHub API on 2026-10-10, not from the default branch.",
+      "copyright": "Copyright (c) 2025 the original author or authors.",
+      "copyright_note": "Reproduced exactly as upstream writes it. No holder name was substituted or guessed.",
+      "satisfies": "MIT: the copyright notice and the permission notice must be included.",
+      "covers": [
+        "io.modelcontextprotocol.sdk:mcp:2.0.0",
+        "io.modelcontextprotocol.sdk:mcp-core:2.0.0",
+        "io.modelcontextprotocol.sdk:mcp-json-jackson3:2.0.0"
+      ],
+      "covers_note": "One LICENSE governs all three artifacts: they are modules of a single upstream repository released together under the v2.0.0 tag."
+    },
+    "MIT-jtokkit-1.1.0.txt": {
+      "sha256": "1591448c197de536ece69aa858d63044f148ba73f14e96e981c46753a9d8ba71",
+      "provenance": "github.com/knuddelsgmbh/jtokkit, file LICENSE, read at the commit tag 1.1.0 resolves to: 4c98bebbbc285de0432abca6b2c8f55f2f51133a. Fetched via the GitHub API on 2026-10-10.",
+      "copyright": "Copyright (c) 2023 Knuddels, Philip Müller",
+      "satisfies": "MIT: the copyright notice and the permission notice must be included.",
+      "covers": [
+        "com.knuddels:jtokkit:1.1.0"
+      ]
+    },
+    "BSD-3-Clause-antlr4-4.13.1.txt": {
+      "sha256": "3db1fb3ee79a4b4f9918fc4d0f6133bf18a3cf787f126cd22f8aa9b862281c0c",
+      "provenance": "github.com/antlr/antlr4, file LICENSE.txt, read at the commit tag 4.13.1 resolves to: 7ed420ff2c78d62883875c442d75f32e73bc86c8. Fetched via the GitHub API on 2026-10-10.",
+      "copyright": "Copyright (c) 2012-2022 The ANTLR Project. All rights reserved.",
+      "satisfies": "BSD-3-Clause: binary redistribution must reproduce the copyright notice, the list of conditions and the disclaimer. All three are in this file.",
+      "covers": [
+        "org.antlr:antlr4-runtime:4.13.1"
+      ]
+    }
+  },
+  "no_material_required": {
+    "_comment": "Licences that impose no attribution or licence-delivery condition on binary redistribution. Listed explicitly so that 'nothing was collected' is a recorded finding rather than an omission.",
+    "org.reactivestreams:reactive-streams:1.0.4": "MIT-0 removes MIT's attribution requirement entirely; nothing is required."
+  },
+  "extra_components": {
+    "spring-boot-jarmode-tools-4.1.1.jar": {
+      "coordinates": "org.springframework.boot:spring-boot-jarmode-tools:4.1.1",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "provenance": "Shipped but absent from the SBOM, because spring-boot-maven-plugin's repackage goal inserts it rather than resolving it as a project dependency, so cyclonedx (which reads the dependency graph) never sees it. It is a Spring Boot module from the same release as every other spring-boot-* artifact here, published by VMware under Apache-2.0, and its jar carries META-INF/NOTICE.txt and META-INF/LICENSE.txt, both reproduced in THIRD-PARTY-NOTICES.md. Its provenance is therefore established from the artifact, not from the SBOM."
+    }
+  }
+}
