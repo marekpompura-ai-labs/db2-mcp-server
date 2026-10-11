@@ -765,7 +765,7 @@
             <plugin>
                 <groupId>com.diffplug.spotless</groupId>
                 <artifactId>spotless-maven-plugin</artifactId>
-                <version>3.10.2</version>
+                <version>3.10.4</version>
                 <configuration>
                     <!-- Explicit, not left to Spotless's own default: this
                          repo's .gitattributes already normalizes text
