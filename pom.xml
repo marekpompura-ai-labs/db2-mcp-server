@@ -54,7 +54,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <spring-ai.version>2.0.1</spring-ai.version>
+        <spring-ai.version>2.0.2</spring-ai.version>
         <db2-jcc.version>12.1.5.0</db2-jcc.version>
         <archunit.version>1.5.0</archunit.version>
         <jsqlparser.version>5.4</jsqlparser.version>
